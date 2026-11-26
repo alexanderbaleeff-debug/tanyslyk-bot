@@ -17,9 +17,29 @@ from aiogram.types import (
 
 BOT_TOKEN = "9273627807:AAEmDJd8IgTLcsSZQ1l0RCZbrMsyMo4pVS4"
 
-users: Dict[int, Dict[str, Any]] = {}
-likes: Dict[int, set] = {}
-matches: Dict[int, set] = {}
+import json
+from pathlib import Path
+
+DATA_FILE = Path("users.json")
+
+def load_data():
+    global users, likes, matches
+    if DATA_FILE.exists():
+        try:
+            data = json.loads(DATA_FILE.read_text())
+            users = {int(k): v for k, v in data.get("users", {}).items()}
+            likes = {int(k): set(v) for k, v in data.get("likes", {}).items()}
+            matches = {int(k): set(v) for k, v in data.get("matches", {}).items()}
+        except Exception:
+            pass
+
+def save_data():
+    data = {
+        "users": {str(k): v for k, v in users.items()},
+        "likes": {str(k): list(v) for k, v in likes.items()},
+        "matches": {str(k): list(v) for k, v in matches.items()},
+    }
+    DATA_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2))
 
 # Нормализация городов (русский ↔ латиница)
 CITY_MAP = {
@@ -133,16 +153,33 @@ def profile_menu(lang: str = "tm"):
 
 router = Router()
 
+def show_main_menu(lang: str = "tm"):
+    if lang == "ru":
+        text = (
+            "1. Смотреть анкеты.\n"
+            "2. Моя анкета.\n"
+            "3. Я больше не хочу никого искать.\n"
+            "***\n"
+            "4. Активируй Premium — будь в топе ⭐."
+        )
+    else:
+        text = (
+            "1. Anketalary gör.\n"
+            "2. Meniň anketam.\n"
+            "3. Men indi hiç kimi gözlemeýärin.\n"
+            "***\n"
+            "4. Premium işjeňleşdir — ýokarda bol ⭐."
+        )
+    return text
+
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
-    try:
-        await message.answer_photo(
-            photo=open("welcome.jpg", "rb"),
-            caption="Salam! 👋\n«Tanyşlyk» botuna hoş geldiňiz! ❤️\n\nDil saýla / Выбери язык:"
-        )
-    except Exception:
-        await message.answer("Salam! 👋\n«Tanyşlyk» botuna hoş geldiňiz! ❤️\n\nDil saýla / Выбери язык:")
+    user_id = message.from_user.id
+    if user_id in users:
+        lang = users[user_id].get("lang", "tm")
+        await message.answer(show_main_menu(lang), reply_markup=reply_menu(lang))
+        return
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🇹🇲 Türkmençe", callback_data="lang_tm")],
         [InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ru")],
@@ -266,6 +303,7 @@ async def photos_done(callback: CallbackQuery, state: FSMContext):
     }
     likes.setdefault(user_id, set())
     matches.setdefault(user_id, set())
+    save_data()
 
     await state.clear()
     lang = data["lang"]
@@ -325,6 +363,7 @@ async def process_like(callback: CallbackQuery):
     target_id = int(callback.data.split("_")[1])
     my_id = callback.from_user.id
     likes.setdefault(my_id, set()).add(target_id)
+    save_data()
 
     me = users.get(my_id)
     if not me:
@@ -349,6 +388,7 @@ async def process_like(callback: CallbackQuery):
     if my_id in likes.get(target_id, set()):
         matches.setdefault(my_id, set()).add(target_id)
         matches.setdefault(target_id, set()).add(my_id)
+        save_data()
         await callback.answer("Взаимный лайк! 🔥", show_alert=True)
         try:
             await callback.bot.send_message(
@@ -434,11 +474,16 @@ async def dislike_reaction(message: Message):
             pass
     await browse(FakeCallback(message))
 
-@router.message(F.text == "💤")
-async def sleep_reaction(message: Message):
-    me = users.get(message.from_user.id, {})
-    lang = me.get("lang", "tm")
-    await message.answer("Подождём пока кто-то увидит твою анкету", reply_markup=reply_menu(lang))
+@router.message(F.text == "3")
+async def stop_searching(message: Message):
+    user_id = message.from_user.id
+    lang = users.get(user_id, {}).get("lang", "tm")
+    users.pop(user_id, None)
+    likes.pop(user_id, None)
+    matches.pop(user_id, None)
+    save_data()
+    text = "Anketa pozuldy. /start basyp täzeden döredip bilersiň." if lang == "tm" else "Анкета удалена. Напиши /start чтобы создать заново."
+    await message.answer(text)
 
 @router.callback_query(F.data == "my_profile")
 async def my_profile(callback: CallbackQuery):
@@ -479,6 +524,7 @@ async def delete_profile(callback: CallbackQuery):
     users.pop(user_id, None)
     likes.pop(user_id, None)
     matches.pop(user_id, None)
+    save_data()
     await callback.message.answer(get_text(lang, "deleted"))
     await callback.answer()
 
@@ -505,6 +551,7 @@ async def successful_payment(message: Message):
     await message.answer("⭐ Premium активирован!", reply_markup=reply_menu(users[user_id].get("lang", "tm")))
 
 async def main():
+    load_data()
     logging.basicConfig(level=logging.INFO)
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
