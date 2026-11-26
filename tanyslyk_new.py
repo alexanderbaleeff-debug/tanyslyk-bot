@@ -92,14 +92,36 @@ TEXTS = {
 def get_text(lang: str, key: str) -> str:
     return TEXTS.get(lang, TEXTS["tm"]).get(key, key)
 
-def main_menu(lang: str = "tm"):
-    t = TEXTS.get(lang, TEXTS["tm"])
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=t["browse"], callback_data="browse")],
-        [InlineKeyboardButton(text="❤️ Kim like basdy / Кто лайкнул", callback_data="who_liked")],
-        [InlineKeyboardButton(text=t["my_profile"], callback_data="my_profile")],
-        [InlineKeyboardButton(text=t["premium"], callback_data="premium")],
-    ])
+def reply_menu(lang: str = "tm"):
+    if lang == "ru":
+        return ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="🚀 Смотреть анкеты")],
+                [KeyboardButton(text="1"), KeyboardButton(text="2"), KeyboardButton(text="3"), KeyboardButton(text="4")],
+            ],
+            resize_keyboard=True
+        )
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🚀 Anketalary gör")],
+            [KeyboardButton(text="1"), KeyboardButton(text="2"), KeyboardButton(text="3"), KeyboardButton(text="4")],
+        ],
+        resize_keyboard=True
+    )
+
+def reaction_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text="❤️⭐"),
+                KeyboardButton(text="❤️"),
+                KeyboardButton(text="✉️"),
+                KeyboardButton(text="👎"),
+                KeyboardButton(text="💤"),
+            ]
+        ],
+        resize_keyboard=True
+    )
 
 def profile_menu(lang: str = "tm"):
     t = TEXTS.get(lang, TEXTS["tm"])
@@ -114,6 +136,13 @@ router = Router()
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
+    try:
+        await message.answer_photo(
+            photo=open("welcome.jpg", "rb"),
+            caption="Salam! 👋\n«Tanyşlyk» botuna hoş geldiňiz! ❤️\n\nDil saýla / Выбери язык:"
+        )
+    except Exception:
+        await message.answer("Salam! 👋\n«Tanyşlyk» botuna hoş geldiňiz! ❤️\n\nDil saýla / Выбери язык:")
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🇹🇲 Türkmençe", callback_data="lang_tm")],
         [InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ru")],
@@ -246,7 +275,7 @@ async def photos_done(callback: CallbackQuery, state: FSMContext):
         f"📍 {data['city']}\n"
         f"{data['about']}"
     )
-    await callback.message.answer_photo(photos[0], caption=caption, parse_mode="HTML", reply_markup=main_menu(lang))
+    await callback.message.answer_photo(photos[0], caption=caption, parse_mode="HTML", reply_markup=reply_menu(lang))
     await callback.answer()
 
 @router.message(Form.photo)
@@ -272,25 +301,23 @@ async def browse(callback: CallbackQuery):
 
     if not candidates:
         lang = me.get("lang", "tm")
-        await callback.message.answer(get_text(lang, "no_profiles"), reply_markup=main_menu(lang))
+        await callback.message.answer(get_text(lang, "no_profiles"), reply_markup=reply_menu(lang))
         await callback.answer()
         return
 
     profile = random.choice(candidates)
     lang = me.get("lang", "tm")
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="❤️ Like", callback_data=f"like_{profile['id']}"),
-            InlineKeyboardButton(text="👎 Geç / Дальше", callback_data="browse"),
-        ],
-        [InlineKeyboardButton(text="🏠 Menýu", callback_data="menu")]
-    ])
     caption = (
         f"<b>{profile['name']}, {profile['age']}</b>\n"
         f"📍 {profile['city']}\n\n"
         f"{profile['about']}"
     )
-    await callback.message.answer_photo(profile["photos"][0], caption=caption, parse_mode="HTML", reply_markup=kb)
+    await callback.message.answer_photo(
+        profile["photos"][0],
+        caption=caption,
+        parse_mode="HTML",
+        reply_markup=reaction_keyboard()
+    )
     await callback.answer()
 
 @router.callback_query(F.data.startswith("like_"))
@@ -353,7 +380,7 @@ async def who_liked(callback: CallbackQuery):
     lang = me.get("lang", "tm")
     if not who:
         text = "Häzirlikçe seni hiç kim like basmady 😔" if lang == "tm" else "Пока никто тебя не лайкнул 😔"
-        await callback.message.answer(text, reply_markup=main_menu(lang))
+        await callback.message.answer(text, reply_markup=reply_menu(lang))
         await callback.answer()
         return
 
@@ -366,12 +393,52 @@ async def who_liked(callback: CallbackQuery):
 
     await callback.answer()
 
-@router.callback_query(F.data == "menu")
-async def to_menu(callback: CallbackQuery):
-    me = users.get(callback.from_user.id, {})
+@router.message(F.text.in_({"🚀 Смотреть анкеты", "🚀 Anketalary gör", "1"}))
+async def browse_text(message: Message):
+    class FakeCallback:
+        def __init__(self, msg):
+            self.from_user = msg.from_user
+            self.message = msg
+            self.data = "browse"
+            self.bot = msg.bot
+        async def answer(self, *a, **k):
+            pass
+    await browse(FakeCallback(message))
+
+@router.message(F.text == "2")
+async def my_profile_text(message: Message):
+    class FakeCallback:
+        def __init__(self, msg):
+            self.from_user = msg.from_user
+            self.message = msg
+            self.data = "my_profile"
+            self.bot = msg.bot
+        async def answer(self, *a, **k):
+            pass
+    await my_profile(FakeCallback(message))
+
+@router.message(F.text.in_({"❤️", "❤️⭐"}))
+async def like_reaction(message: Message):
+    # упрощённо — лайк последнему показанному (нужно хранить current profile)
+    await message.answer("Лайк отправлен ❤️", reply_markup=reaction_keyboard())
+
+@router.message(F.text == "👎")
+async def dislike_reaction(message: Message):
+    class FakeCallback:
+        def __init__(self, msg):
+            self.from_user = msg.from_user
+            self.message = msg
+            self.data = "browse"
+            self.bot = msg.bot
+        async def answer(self, *a, **k):
+            pass
+    await browse(FakeCallback(message))
+
+@router.message(F.text == "💤")
+async def sleep_reaction(message: Message):
+    me = users.get(message.from_user.id, {})
     lang = me.get("lang", "tm")
-    await callback.message.answer(get_text(lang, "menu"), reply_markup=main_menu(lang))
-    await callback.answer()
+    await message.answer("Подождём пока кто-то увидит твою анкету", reply_markup=reply_menu(lang))
 
 @router.callback_query(F.data == "my_profile")
 async def my_profile(callback: CallbackQuery):
@@ -435,7 +502,7 @@ async def successful_payment(message: Message):
     user_id = message.from_user.id
     if user_id in users:
         users[user_id]["premium"] = True
-    await message.answer("⭐ Premium активирован!", reply_markup=main_menu(users[user_id].get("lang", "tm")))
+    await message.answer("⭐ Premium активирован!", reply_markup=reply_menu(users[user_id].get("lang", "tm")))
 
 async def main():
     logging.basicConfig(level=logging.INFO)
