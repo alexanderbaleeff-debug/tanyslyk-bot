@@ -281,9 +281,23 @@ async def main():
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
-    await bot.delete_webhook(drop_pending_updates=True)
-    print("Bot işledi...")
-    await dp.start_polling(bot)
+
+    # Webhook mode for Render / hosting
+    WEBHOOK_PATH = "/webhook"
+    WEBHOOK_URL = os.getenv("RENDER_EXTERNAL_URL", "") + WEBHOOK_PATH
+
+    if os.getenv("RENDER_EXTERNAL_URL"):
+        await bot.set_webhook(WEBHOOK_URL)
+        from aiohttp import web
+        app = web.Application()
+        from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+        SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
+        setup_application(app, dp, bot=bot)
+        web.run_app(app, host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+    else:
+        await bot.delete_webhook(drop_pending_updates=True)
+        print("Bot işledi (polling)...")
+        await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
