@@ -282,22 +282,31 @@ async def main():
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
 
-    # Webhook mode for Render / hosting
-    WEBHOOK_PATH = "/webhook"
-    WEBHOOK_URL = os.getenv("RENDER_EXTERNAL_URL", "") + WEBHOOK_PATH
+    try:
+        if os.getenv("RENDER_EXTERNAL_URL"):
+            WEBHOOK_PATH = "/webhook"
+            WEBHOOK_URL = os.getenv("RENDER_EXTERNAL_URL") + WEBHOOK_PATH
+            await bot.set_webhook(WEBHOOK_URL)
 
-    if os.getenv("RENDER_EXTERNAL_URL"):
-        await bot.set_webhook(WEBHOOK_URL)
-        from aiohttp import web
-        app = web.Application()
-        from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
-        SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
-        setup_application(app, dp, bot=bot)
-        web.run_app(app, host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
-    else:
-        await bot.delete_webhook(drop_pending_updates=True)
-        print("Bot işledi (polling)...")
-        await dp.start_polling(bot)
+            from aiohttp import web
+            from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+
+            app = web.Application()
+            SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
+            setup_application(app, dp, bot=bot)
+
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+            await site.start()
+            print("Webhook started on port", os.getenv("PORT", 10000))
+            await asyncio.Event().wait()
+        else:
+            await bot.delete_webhook(drop_pending_updates=True)
+            print("Bot işledi (polling)...")
+            await dp.start_polling(bot)
+    finally:
+        await bot.session.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
