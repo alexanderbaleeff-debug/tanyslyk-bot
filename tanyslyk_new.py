@@ -96,6 +96,7 @@ def main_menu(lang: str = "tm"):
     t = TEXTS.get(lang, TEXTS["tm"])
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=t["browse"], callback_data="browse")],
+        [InlineKeyboardButton(text="❤️ Kim like basdy / Кто лайкнул", callback_data="who_liked")],
         [InlineKeyboardButton(text=t["my_profile"], callback_data="my_profile")],
         [InlineKeyboardButton(text=t["premium"], callback_data="premium")],
     ])
@@ -298,18 +299,72 @@ async def process_like(callback: CallbackQuery):
     my_id = callback.from_user.id
     likes.setdefault(my_id, set()).add(target_id)
 
+    me = users.get(my_id)
+    if not me:
+        await callback.answer()
+        return
+
+    # Уведомление тому, кого лайкнули
+    try:
+        target = users.get(target_id)
+        if target:
+            lang = target.get("lang", "tm")
+            text = f"❤️ Seni like basdy: {me['name']}, {me['age']} ({me['city']})" if lang == "tm" else f"❤️ Тебя лайкнул: {me['name']}, {me['age']} ({me['city']})"
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="❤️ Like yzyna / Лайк в ответ", callback_data=f"like_{my_id}")],
+                [InlineKeyboardButton(text="👀 Anketany gör / Посмотреть", callback_data=f"view_{my_id}")],
+            ])
+            await callback.bot.send_message(target_id, text, reply_markup=kb)
+    except Exception:
+        pass
+
+    # Взаимный лайк
     if my_id in likes.get(target_id, set()):
         matches.setdefault(my_id, set()).add(target_id)
         matches.setdefault(target_id, set()).add(my_id)
         await callback.answer("Взаимный лайк! 🔥", show_alert=True)
         try:
-            me = users.get(my_id)
-            await callback.bot.send_message(target_id, f"🔥 Взаимный лайк! {me['name']} тебя лайкнул(а).")
+            await callback.bot.send_message(
+                target_id,
+                f"🔥 Özara like! {me['name']} seni halady.\nНапиши ему/ей в личку или через бота."
+            )
+            await callback.message.answer(f"🔥 Взаимный лайк с {users[target_id]['name']}! Можешь написать.")
         except Exception:
             pass
     else:
         await callback.answer("Лайк отправлен ❤️")
+
     await browse(callback)
+
+@router.callback_query(F.data == "who_liked")
+async def who_liked(callback: CallbackQuery):
+    my_id = callback.from_user.id
+    me = users.get(my_id)
+    if not me:
+        await callback.answer("Сначала создай анкету", show_alert=True)
+        return
+
+    who = []
+    for uid, liked_set in likes.items():
+        if my_id in liked_set and uid != my_id:
+            if uid in users:
+                who.append(users[uid])
+
+    lang = me.get("lang", "tm")
+    if not who:
+        text = "Häzirlikçe seni hiç kim like basmady 😔" if lang == "tm" else "Пока никто тебя не лайкнул 😔"
+        await callback.message.answer(text, reply_markup=main_menu(lang))
+        await callback.answer()
+        return
+
+    for p in who[:10]:
+        caption = f"<b>{p['name']}, {p['age']}</b>\n📍 {p['city']}\n\n{p['about']}"
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❤️ Like yzyna / Лайк в ответ", callback_data=f"like_{p['id']}")],
+        ])
+        await callback.message.answer_photo(p["photos"][0], caption=caption, parse_mode="HTML", reply_markup=kb)
+
+    await callback.answer()
 
 @router.callback_query(F.data == "menu")
 async def to_menu(callback: CallbackQuery):
