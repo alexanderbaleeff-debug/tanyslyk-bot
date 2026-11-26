@@ -266,8 +266,17 @@ async def photos_done(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(show_menu_text(lang))
     await callback.answer()
 
-@router.message(F.text.in_({"🚀 Смотреть анкеты", "🚀 Anketalary gör", "1"}))
-async def browse_start(message: Message):
+@router.message(Command("browse"))
+async def cmd_browse(message: Message):
+    await browse_start(message)
+
+@router.message(Command("profile"))
+async def cmd_profile(message: Message):
+    await show_my_profile(message)
+
+@router.message(Command("premium"))
+async def cmd_premium(message: Message):
+    await premium(message)
     user_id = message.from_user.id
     if user_id not in users:
         await message.answer("Сначала создай анкету через /start")
