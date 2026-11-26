@@ -12,10 +12,14 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
-    LabeledPrice, PreCheckoutQuery
+    LabeledPrice, PreCheckoutQuery, ReplyKeyboardMarkup, KeyboardButton
 )
 
 BOT_TOKEN = "9273627807:AAEmDJd8IgTLcsSZQ1l0RCZbrMsyMo4pVS4"
+
+users: Dict[int, Dict[str, Any]] = {}
+likes: Dict[int, set] = {}
+matches: Dict[int, set] = {}
 
 import json
 from pathlib import Path
